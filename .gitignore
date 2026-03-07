@@ -1,2 +1,4 @@
 test_onnx.py
 env/
+data
+__pycache__/
