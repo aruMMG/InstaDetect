@@ -1,0 +1,13 @@
+{
+  "base_model_pt": "/home/USER/edge_remote_project/base_models/yolo11n.pt",
+  "workspace_dir": "/home/USER/edge_remote_project/workspace",
+  "dataset_yaml": "/home/USER/edge_remote_project/data/defect_dataset.yaml",
+  "train_epochs": 20,
+  "train_imgsz": 640,
+  "train_batch": 8,
+  "pi_host": "192.168.1.50",
+  "pi_user": "pi",
+  "pi_ssh_key": "/home/USER/.ssh/id_ed25519",
+  "pi_deploy_model_path": "/home/pi/edge_ai_demo_data/models/current_model.onnx",
+  "pi_version_json_path": "/home/pi/edge_ai_demo_data/models/current_model.json"
+}
