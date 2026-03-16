@@ -2,3 +2,6 @@ test_onnx.py
 env/
 data
 __pycache__/
+app/__pycache__/
+app/managers/__pycache__/
+weights

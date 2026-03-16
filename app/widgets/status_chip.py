@@ -4,11 +4,14 @@ from PyQt5.QtWidgets import QLabel
 class StatusChip(QLabel):
     COLOR_MAP = {
         "idle": "#616161",
+        "preparing dataset": "#455A64",
+        "uploading dataset": "#5E35B1",
         "training started": "#1565C0",
         "training running": "#0277BD",
         "validation running": "#6A1B9A",
         "export running": "#EF6C00",
         "deployment running": "#00897B",
+        "pulling model": "#00897B",
         "completed": "#2E7D32",
         "failed": "#C62828",
         "running": "#2E7D32",

@@ -2,7 +2,7 @@
   "base_model_pt": "/home/USER/edge_remote_project/base_models/yolo11n.pt",
   "workspace_dir": "/home/USER/edge_remote_project/workspace",
   "dataset_yaml": "/home/USER/edge_remote_project/data/defect_dataset.yaml",
-  "train_epochs": 20,
+  "train_epochs": 2000,
   "train_imgsz": 640,
   "train_batch": 8,
   "pi_host": "192.168.1.50",

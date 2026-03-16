@@ -10,12 +10,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--session", default="", help="Pi session path, kept for logging/auditing")
     parser.add_argument("--classes", default="", help="Comma-separated classes, optional for your own pipeline")
+    parser.add_argument("--dataset-yaml", default="", help="Optional dataset YAML path for this run")
     parser.add_argument("--model", required=True, help="Run name / model name")
     args = parser.parse_args()
 
     cfg = load_config()
     workspace_dir = ensure_dir(cfg["workspace_dir"])
-    dataset_yaml = cfg["dataset_yaml"]
+    dataset_yaml = args.dataset_yaml or cfg["dataset_yaml"]
     base_model_pt = cfg["base_model_pt"]
     epochs = int(cfg.get("train_epochs", 20))
     imgsz = int(cfg.get("train_imgsz", 640))

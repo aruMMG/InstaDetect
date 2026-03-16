@@ -1,0 +1,12 @@
+{
+  "remote_host": "wmgubws21",
+  "remote_user": "singh_a",
+  "remote_project_dir": "/home/singh_a_WMGDS.WMG.WARWICK.AC.UK/side_work/edge_remote_project",
+  "ssh_key_path": "~/.ssh/id_ed25519_remote_train",
+  "local_session_root": "~/edge_ai_demo_data/sessions",
+  "local_model_dest": "~/side_work/edge_ai_demo_ultralytics_onnx/edge_ai_demo/weights/aa.onnx",
+  "local_model_meta": "~/side_work/edge_ai_demo_ultralytics_onnx/edge_ai_demo/weights/aa.json",
+  "remote_dataset_inbox": "/home/singh_a_WMGDS.WMG.WARWICK.AC.UK/side_work/edge_remote_project/datasets/inbox",
+  "remote_run_root": "/home/singh_a_WMGDS.WMG.WARWICK.AC.UK/side_work/edge_remote_project/runs",
+  "base_model_name": "yolo11n.pt"
+}

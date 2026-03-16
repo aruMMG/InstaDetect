@@ -1,29 +1,41 @@
-# Remote training scripts for Ubuntu laptop
+# Remote training scripts
 
-These scripts are meant to live on the stronger remote machine that the Raspberry Pi UI calls over SSH.
+These scripts are meant to run on the stronger remote machine that the local UI connects to.
 
 ## What they do
-- `fine_tune.py`: trains a detector from your base `.pt` model
-- `validate.py`: validates the trained `.pt` checkpoint
-- `export_model.py`: exports `best.pt` to `best.onnx`
-- `deploy_back.py`: copies the ONNX model back to the Raspberry Pi
 
-## Important data assumption
-The current UI capture screen stores images as:
+- `fine_tune.py`: train from the base `.pt` model already present on the remote machine
+- `validate.py`: validate `best.pt`
+- `export_model.py`: export the trained checkpoint to ONNX
+- `deploy_back.py`: optional helper that pushes the model to another device with `ssh`/`scp`
+
+## Current data flow
+
+The local UI now prepares a YOLO dataset from the selected capture session before remote training starts.
+
+The uploaded dataset looks like this on the remote machine:
 
 ```text
-<session>/<class_name>/<image>.jpg
+<remote_dataset_root>/<dataset_name>/
+├── dataset.yaml
+├── train/
+│   ├── images/
+│   └── labels/
+└── val/
+    ├── images/
+    └── labels/
 ```
 
-That is **not** YOLO detection dataset format. For detection fine-tuning, your real dataset should already exist in YOLO format, or you should add your own preprocessing step before `fine_tune.py`.
+`fine_tune.py` accepts either:
 
-The scripts below therefore use `dataset_yaml` from `remote_config.json` as the source of truth for training.
+- `--dataset-yaml <path>` for a session-specific uploaded dataset
+- or the fallback `dataset_yaml` value from `remote_config.json`
 
-## Setup on Ubuntu laptop
+## Setup on the remote machine
 
 ```bash
 sudo apt update
-sudo apt install -y python3-venv rsync openssh-client
+sudo apt install -y python3-venv
 mkdir -p ~/edge_remote_project
 cd ~/edge_remote_project
 python3 -m venv .venv
@@ -33,7 +45,12 @@ pip install -r remote_training/requirements.txt
 cp remote_training/remote_config.json.example remote_training/remote_config.json
 ```
 
-Then edit `remote_training/remote_config.json` for your laptop and Pi paths.
+Then edit `remote_training/remote_config.json` with the remote machine paths for:
+
+- `base_model_pt`
+- `workspace_dir`
+- optional fallback `dataset_yaml`
+- deployment destinations if you still use `deploy_back.py`
 
 ## Folder layout example
 
@@ -42,8 +59,8 @@ Then edit `remote_training/remote_config.json` for your laptop and Pi paths.
 ├── .venv/
 ├── base_models/
 │   └── yolo11n.pt
-├── data/
-│   └── defect_dataset.yaml
+├── datasets/
+│   └── <uploaded_session_dataset>/
 ├── workspace/
 ├── remote_training/
 │   ├── fine_tune.py
@@ -54,13 +71,12 @@ Then edit `remote_training/remote_config.json` for your laptop and Pi paths.
 │   └── remote_config.json
 ```
 
-## Test each script manually
+## Manual test examples
 
 ```bash
 source .venv/bin/activate
 cd ~/edge_remote_project/remote_training
-python fine_tune.py --model defect_demo_v1
+python fine_tune.py --model defect_demo_v1 --dataset-yaml ~/edge_remote_project/datasets/sample_run/dataset.yaml
 python validate.py --model defect_demo_v1
 python export_model.py --model defect_demo_v1
-python deploy_back.py --model defect_demo_v1
 ```

@@ -1,5 +1,7 @@
 import os
 import time
+import json
+from pathlib import Path
 from typing import Optional
 
 import cv2
@@ -23,6 +25,7 @@ from PyQt5.QtWidgets import (
     QTabWidget,
     QVBoxLayout,
     QWidget,
+    QSizePolicy,
 )
 
 from app.interfaces.predictor import UltralyticsOnnxPredictor
@@ -33,7 +36,7 @@ from app.managers.log_manager import LogManager
 from app.managers.model_manager import ModelManager
 from app.managers.remote_training_client import RemoteTrainingClient, TrainingConfig
 from app.widgets.status_chip import StatusChip
-
+from app.widgets.data_capture_widget import DataCaptureWidget
 
 def frame_to_pixmap(frame, width: int, height: int) -> QPixmap:
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -48,7 +51,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Edge AI Industrial Defect Detection Demo")
         self.resize(1420, 860)
-
+        self.setMinimumSize(1420, 860)
+        
         self.device_name = os.uname().nodename if hasattr(os, "uname") else "Raspberry Pi"
         self.current_frame = None
         self.last_inference_frame = None
@@ -56,9 +60,13 @@ class MainWindow(QMainWindow):
         self._last_capture_preview_ts = 0.0
         self._last_inference_preview_ts = 0.0
 
+        project_root = Path(__file__).resolve().parent.parent
         base_data_dir = os.path.expanduser("~/edge_ai_demo_data")
+        self.ui_config_path = os.path.join(base_data_dir, "config", "ui_config.json")
+        os.makedirs(os.path.dirname(self.ui_config_path), exist_ok=True)
+        
         os.makedirs(base_data_dir, exist_ok=True)
-        default_model_dir = os.path.join(base_data_dir, "models")
+        default_model_dir = str(project_root / "weights")
         os.makedirs(default_model_dir, exist_ok=True)
         self.default_model_path = os.path.join(default_model_dir, "current_model.onnx")
 
@@ -66,13 +74,21 @@ class MainWindow(QMainWindow):
         self.predictor = UltralyticsOnnxPredictor(conf_threshold=0.25, imgsz=640, device="cpu")
         self.camera_manager = CameraManager(camera_index=0)
         self.inference_manager = InferenceManager(self.predictor)
+        
         self.capture_manager = CaptureManager(base_dir=os.path.join(base_data_dir, "captures"))
+        self.data_capture_widget = DataCaptureWidget(
+            capture_manager=self.capture_manager,
+            class_names=["scratch", "dent", "crack", "missing_part"],
+            log_callback=self.log_manager.log,
+        )
         self.remote_training_client = RemoteTrainingClient()
         self.model_manager = ModelManager(self.predictor, self.default_model_path, auto_reload=False)
+
 
         self._build_ui()
         self._wire_signals()
         self._apply_theme()
+        self._load_ui_config()
 
         self.capture_manager.start_new_session("demo_session")
         self.model_manager.reload_model()
@@ -105,7 +121,8 @@ class MainWindow(QMainWindow):
         root.addWidget(self.tabs)
 
         self.tab_inference = self._build_inference_tab()
-        self.tab_capture = self._build_capture_tab()
+        self.tab_capture = self.data_capture_widget
+        # self.tab_capture = self._build_capture_tab()
         self.tab_training = self._build_training_tab()
         self.tab_logs = self._build_logs_tab()
 
@@ -149,8 +166,10 @@ class MainWindow(QMainWindow):
 
         self.inference_preview = QLabel("Waiting for camera...")
         self.inference_preview.setAlignment(Qt.AlignCenter)
-        self.inference_preview.setMinimumHeight(620)
+        self.inference_preview.setMinimumSize(640, 480)
         self.inference_preview.setStyleSheet("background: #111; color: #EEE; border-radius: 8px;")
+        self.inference_preview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.inference_preview.setScaledContents(False)
         layout.addWidget(self.inference_preview)
         return tab
 
@@ -207,8 +226,9 @@ class MainWindow(QMainWindow):
         self.host_edit = QLineEdit("192.168.1.100")
         self.user_edit = QLineEdit("pi")
         self.remote_dir_edit = QLineEdit("~/edge_training_project")
+        self.remote_dataset_root_edit = QLineEdit("~/edge_training_project/datasets")
         self.training_session_path_edit = QLineEdit(self.capture_manager.current_session_dir or "")
-        self.training_classes_edit = QLineEdit("scratch,dent,crack")
+        self.training_classes_edit = QLineEdit(",".join(self.data_capture_widget.class_names))
         self.training_model_name_edit = QLineEdit("defect_demo_v1")
         self.training_python_edit = QLineEdit("python3")
         self.ssh_key_edit = QLineEdit("~/.ssh/id_rsa")
@@ -218,15 +238,22 @@ class MainWindow(QMainWindow):
         self.stop_training_btn = QPushButton("Stop Training")
         self.stop_training_btn.setEnabled(False)
 
+        self.remote_runs_root_edit = QLineEdit("~/side_work/edge_remote_project/runs")
+        self.save_training_cfg_btn = QPushButton("Save Remote Config")
+
         config_form.addRow("SSH host", self.host_edit)
         config_form.addRow("SSH user", self.user_edit)
         config_form.addRow("Remote project dir", self.remote_dir_edit)
+        config_form.addRow("Remote dataset root", self.remote_dataset_root_edit)
         config_form.addRow("Session path", self.training_session_path_edit)
         config_form.addRow("Classes CSV", self.training_classes_edit)
         config_form.addRow("Model name", self.training_model_name_edit)
         config_form.addRow("Python exec", self.training_python_edit)
         config_form.addRow("SSH key", self.ssh_key_edit)
         config_form.addRow(self.mock_checkbox)
+
+        config_form.addRow("Remote runs root", self.remote_runs_root_edit)
+        config_form.addRow(self.save_training_cfg_btn)
 
         button_row = QHBoxLayout()
         button_row.addWidget(self.start_training_btn)
@@ -283,23 +310,28 @@ class MainWindow(QMainWindow):
         self.inference_manager.error.connect(self._on_error)
         self.inference_manager.inference_state_changed.connect(self._on_inference_state_changed)
 
-        self.browse_capture_dir_btn.clicked.connect(self._choose_capture_dir)
-        self.new_session_btn.clicked.connect(self._start_new_capture_session)
-        self.capture_btn.clicked.connect(self._capture_current_frame)
+        # self.browse_capture_dir_btn.clicked.connect(self._choose_capture_dir)
+        # self.new_session_btn.clicked.connect(self._start_new_capture_session)
+        # self.capture_btn.clicked.connect(self._capture_current_frame)
+        # self.capture_manager.session_changed.connect(self._on_session_changed)
+        # self.capture_manager.count_changed.connect(lambda count: self.image_count_value.setText(str(count)))
+        # self.capture_manager.image_captured.connect(self._on_image_captured)
+        # self.capture_manager.error.connect(self._on_error)
+        self.camera_manager.frame_ready.connect(self.data_capture_widget.update_live_frame)
         self.capture_manager.session_changed.connect(self._on_session_changed)
-        self.capture_manager.count_changed.connect(lambda count: self.image_count_value.setText(str(count)))
-        self.capture_manager.image_captured.connect(self._on_image_captured)
-        self.capture_manager.error.connect(self._on_error)
-
+        
         self.start_training_btn.clicked.connect(self._start_remote_training)
         self.stop_training_btn.clicked.connect(self._stop_remote_training)
         self.reload_model_btn.clicked.connect(self._reload_model)
+        self.save_training_cfg_btn.clicked.connect(self._save_ui_config)
         self.auto_reload_checkbox.stateChanged.connect(self._on_auto_reload_changed)
         self.polling_checkbox.stateChanged.connect(self._on_polling_changed)
 
         self.model_manager.model_loaded.connect(self._on_model_loaded)
         self.model_manager.model_changed_on_disk.connect(self._on_model_changed_on_disk)
         self.model_manager.error.connect(self._on_error)
+
+
 
     def _apply_theme(self):
         self.setStyleSheet(
@@ -352,18 +384,12 @@ class MainWindow(QMainWindow):
 
         now = time.perf_counter()
 
-        if now - self._last_capture_preview_ts >= 0.08:
-            self.capture_preview.setPixmap(
-                frame_to_pixmap(frame, self.capture_preview.width(), self.capture_preview.height())
-            )
-            self._last_capture_preview_ts = now
-
         if not self.inference_manager._running and now - self._last_inference_preview_ts >= 0.08:
             self.inference_preview.setPixmap(
                 frame_to_pixmap(frame, self.inference_preview.width(), self.inference_preview.height())
             )
             self._last_inference_preview_ts = now
-            
+
     def _on_inference_result(self, overlay_frame, detections, latency_ms, fps):
         self.last_inference_frame = overlay_frame.copy()
         self.inference_preview.setPixmap(
@@ -401,7 +427,6 @@ class MainWindow(QMainWindow):
         self.log_manager.log(f"New capture session started: {self.capture_manager.current_session_dir}")
 
     def _on_session_changed(self, session_dir: str):
-        self.current_session_value.setText(session_dir)
         self.training_session_path_edit.setText(session_dir)
 
     def _capture_current_frame(self):
@@ -421,9 +446,12 @@ class MainWindow(QMainWindow):
                 host=self.host_edit.text().strip(),
                 user=self.user_edit.text().strip(),
                 remote_project_dir=self.remote_dir_edit.text().strip(),
+                remote_dataset_root=self.remote_dataset_root_edit.text().strip(),
+                remote_runs_root=self.remote_runs_root_edit.text().strip(),
                 session_path=self.training_session_path_edit.text().strip(),
                 classes_csv=self.training_classes_edit.text().strip(),
                 model_name=self.training_model_name_edit.text().strip(),
+                local_model_dest=self.training_model_path_edit.text().strip(),
                 python_exec=self.training_python_edit.text().strip() or "python3",
                 use_mock=self.mock_checkbox.isChecked(),
                 ssh_key=self.ssh_key_edit.text().strip(),
@@ -436,6 +464,7 @@ class MainWindow(QMainWindow):
             worker.completed.connect(self._on_training_completed)
             self.start_training_btn.setEnabled(False)
             self.stop_training_btn.setEnabled(True)
+            self._save_ui_config()
             self.log_manager.log("Remote training triggered")
         except Exception as exc:
             self._on_error(str(exc))
@@ -452,9 +481,9 @@ class MainWindow(QMainWindow):
         self.stop_training_btn.setEnabled(False)
         if success:
             self.training_status_chip.set_status("completed")
-            self.log_manager.log("Training complete")
-            if self.auto_reload_checkbox.isChecked():
-                self._reload_model()
+            self.training_latest_msg.setText("Model pulled back successfully. Reloading local model.")
+            self.log_manager.log("Training/export/pull-back complete")
+            self._reload_model()
         else:
             self.training_status_chip.set_status("failed")
             self.log_manager.log(f"Training failed: {message}")
@@ -497,3 +526,45 @@ class MainWindow(QMainWindow):
     def _on_error(self, message: str):
         self.log_manager.log(f"ERROR: {message}")
         QMessageBox.warning(self, "Edge AI Demo", message)
+
+    def _save_ui_config(self):
+        data = {
+            "host": self.host_edit.text().strip(),
+            "user": self.user_edit.text().strip(),
+            "remote_project_dir": self.remote_dir_edit.text().strip(),
+            "remote_dataset_root": self.remote_dataset_root_edit.text().strip(),
+            "remote_runs_root": self.remote_runs_root_edit.text().strip(),
+            "python_exec": self.training_python_edit.text().strip(),
+            "ssh_key": self.ssh_key_edit.text().strip(),
+            "model_file": self.training_model_path_edit.text().strip(),
+            "mock_mode": self.mock_checkbox.isChecked(),
+            "auto_reload": self.auto_reload_checkbox.isChecked(),
+            "polling": self.polling_checkbox.isChecked(),
+        }
+        with open(self.ui_config_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        self.log_manager.log(f"Saved UI config: {self.ui_config_path}")
+
+
+    def _load_ui_config(self):
+        if not os.path.exists(self.ui_config_path):
+            return
+        try:
+            with open(self.ui_config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            self.host_edit.setText(data.get("host", self.host_edit.text()))
+            self.user_edit.setText(data.get("user", self.user_edit.text()))
+            self.remote_dir_edit.setText(data.get("remote_project_dir", self.remote_dir_edit.text()))
+            self.remote_dataset_root_edit.setText(data.get("remote_dataset_root", self.remote_dataset_root_edit.text()))
+            self.remote_runs_root_edit.setText(data.get("remote_runs_root", self.remote_runs_root_edit.text()))
+            self.training_python_edit.setText(data.get("python_exec", self.training_python_edit.text()))
+            self.ssh_key_edit.setText(data.get("ssh_key", self.ssh_key_edit.text()))
+            self.training_model_path_edit.setText(data.get("model_file", self.training_model_path_edit.text()))
+            self.mock_checkbox.setChecked(data.get("mock_mode", self.mock_checkbox.isChecked()))
+            self.auto_reload_checkbox.setChecked(data.get("auto_reload", self.auto_reload_checkbox.isChecked()))
+            self.polling_checkbox.setChecked(data.get("polling", self.polling_checkbox.isChecked()))
+
+            self.log_manager.log(f"Loaded UI config: {self.ui_config_path}")
+        except Exception as exc:
+            self.log_manager.log(f"Failed to load UI config: {exc}")

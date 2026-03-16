@@ -9,11 +9,12 @@ from common import load_config
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
+    parser.add_argument("--dataset-yaml", default="")
     args = parser.parse_args()
 
     cfg = load_config()
     best_pt = Path(cfg["workspace_dir"]) / args.model / "weights" / "best.pt"
-    dataset_yaml = cfg["dataset_yaml"]
+    dataset_yaml = args.dataset_yaml or cfg["dataset_yaml"]
 
     if not best_pt.exists():
         raise FileNotFoundError(f"best.pt not found: {best_pt}")
